@@ -80,7 +80,7 @@ Environment differences             "Works on my machine"       Documented local
 Status key
 
 ID              Task                       Owner                       Branch                                               Status                 
-PMP-30          Integration agreement,     Tech lead                   `docs/PMP-30-integration-agreement`                  Done
+PMP-30          Integration agreement,     Tech lead                   `docs/PMP-30-team-decisions`                  Done
                 API contract, ownership,
                 Postman collection,
                 fictional seed data.
