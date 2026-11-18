@@ -5,7 +5,7 @@ Branches (local; push to remote when publishing):
 develop
 docs/PMP-1-repo-evidence
 docs/PMP-2-branching-strategy
-docs/PMP-30-integration-agreement
+docs/PMP-30-team-decision
 docs/PMP-34-readme-startup
 docs/PMP-35-backlog-evidence
 docs/PMP-36-evidence-refresh
