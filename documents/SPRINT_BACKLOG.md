@@ -60,3 +60,11 @@ Each learner posts a short WhatsApp update:
 1. What I completed since the last update.
 2. What I will work on next.
 3. Any blocker or help needed.
+
+## Blockers
+ID  Blocker                                                    Impact                                  Owner            Action                                                 Status 
+B1  Backend developer's DB-backed routes not yet delivered    Cannot integrate with PostgreSQL          Backend dev     Deliver PR to `develop`; stub marked with `TODO(PMP-31)`  Open
+B2  Frontend dev has not yet reviewed spike UI in a browser  UI behaviour unconfirmed beyond build     Frontend dev      Run README steps, report issues                   Open 
+B3  Team sign-off of contract not recorded                   Ownership not formally confirmed           Tech Lead        Collect confirmations in integration agreement                             Open 
+B4  PostgreSQL scripts (`init.sql`, `seed.sql`) not executed in this environment  Seed script untested  QA / Backend  Run README §4.3 and report                    Open 
+B5  Supervisor feedback not yet received                     Cannot confirm milestone realism  Tech Lead  Reminder message sent (see submission document)                              Open 
