@@ -40,8 +40,127 @@ app.get('/api/tasks', async (req, res) => {
   }
 });
 
+// ---------- TASK 04: DATABASE-BACKED CREATE / LIST OPERATIONS ----------
+// Author: Katlego (Learner 3)
+// Projects and tasks are read from and saved to PostgreSQL, with input validation.
+// Validation problems return 400 with clear messages; database problems return a safe 503.
+const TASK_PRIORITY = ['low', 'medium', 'high'];
+const PROJECT_STATUS = ['planning', 'active', 'completed'];
+const SAFE_DB_ERROR = { error: 'Service temporarily unavailable. Please try again later.' };
+
+function parseId(value) {
+  if (typeof value === 'number' && Number.isInteger(value) && value > 0) return value;
+  if (typeof value === 'string' && /^\d+$/.test(value) && Number(value) > 0) return Number(value);
+  return null;
+}
+function isValidDate(value) {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const d = new Date(value + 'T00:00:00Z');
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === value;
+}
+async function rowExists(table, id) {
+  const allowed = { users: 'users', projects: 'projects' };
+  const result = await pool.query(`SELECT 1 FROM ${allowed[table]} WHERE id = $1`, [id]);
+  return result.rowCount > 0;
+}
+const bodyOf = (req) => (req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {});
+
+// GET /api/users - list users (fictional) so valid owner_id / assignee_id values can be seen
+app.get('/api/users', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT id, full_name, email, role FROM users ORDER BY id');
+    res.status(200).json(result.rows);
+  } catch (err) {
+    console.error('GET /api/users failed:', err.code || 'database error');
+    res.status(503).json(SAFE_DB_ERROR);
+  }
+});
+
+// GET /api/projects - list projects
+app.get('/api/projects', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT id, name, description, owner_id, status FROM projects ORDER BY id');
+    res.status(200).json(result.rows);
+  } catch (err) {
+    console.error('GET /api/projects failed:', err.code || 'database error');
+    res.status(503).json(SAFE_DB_ERROR);
+  }
+});
+
+// POST /api/projects - create a project (required: name, owner_id)
+app.post('/api/projects', async (req, res) => {
+  const body = bodyOf(req);
+  const errors = [];
+  const name = typeof body.name === 'string' ? body.name.trim() : '';
+  if (!name) errors.push('name is required');
+  else if (name.length > 150) errors.push('name must be 150 characters or fewer');
+  let owner_id = null;
+  if (body.owner_id === undefined || body.owner_id === null) errors.push('owner_id is required');
+  else if ((owner_id = parseId(body.owner_id)) === null) errors.push('owner_id must be a positive whole number');
+  if (body.description !== undefined && body.description !== null && typeof body.description !== 'string')
+    errors.push('description must be text');
+  const status = body.status === undefined ? 'planning' : body.status;
+  if (!PROJECT_STATUS.includes(status)) errors.push(`status must be one of: ${PROJECT_STATUS.join(', ')}`);
+  if (errors.length) return res.status(400).json({ error: 'Validation failed', details: errors });
+
+  try {
+    if (!(await rowExists('users', owner_id)))
+      return res.status(400).json({ error: 'Validation failed', details: ['owner_id does not exist'] });
+    const result = await pool.query(
+      'INSERT INTO projects (name, description, owner_id, status) VALUES ($1, $2, $3, $4) ' +
+      'RETURNING id, name, description, owner_id, status',
+      [name, body.description || null, owner_id, status]);
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error('POST /api/projects failed:', err.code || 'database error');
+    res.status(503).json(SAFE_DB_ERROR);
+  }
+});
+
+// POST /api/tasks - create a task (required: title, project_id)
+app.post('/api/tasks', async (req, res) => {
+  const body = bodyOf(req);
+  const errors = [];
+  const title = typeof body.title === 'string' ? body.title.trim() : '';
+  if (!title) errors.push('title is required');
+  else if (title.length > 200) errors.push('title must be 200 characters or fewer');
+  let project_id = null;
+  if (body.project_id === undefined || body.project_id === null) errors.push('project_id is required');
+  else if ((project_id = parseId(body.project_id)) === null) errors.push('project_id must be a positive whole number');
+  const status = body.status === undefined ? 'todo' : body.status;
+  if (!TASK_STATUS.includes(status)) errors.push(`status must be one of: ${TASK_STATUS.join(', ')}`);
+  const priority = body.priority === undefined ? 'medium' : body.priority;
+  if (!TASK_PRIORITY.includes(priority)) errors.push(`priority must be one of: ${TASK_PRIORITY.join(', ')}`);
+  let assignee_id = null;
+  if (body.assignee_id !== undefined && body.assignee_id !== null &&
+      (assignee_id = parseId(body.assignee_id)) === null) errors.push('assignee_id must be a positive whole number');
+  let due_date = null;
+  if (body.due_date !== undefined && body.due_date !== null) {
+    if (isValidDate(body.due_date)) due_date = body.due_date;
+    else errors.push('due_date must be a valid date in YYYY-MM-DD format');
+  }
+  if (body.description !== undefined && body.description !== null && typeof body.description !== 'string')
+    errors.push('description must be text');
+  if (errors.length) return res.status(400).json({ error: 'Validation failed', details: errors });
+
+  try {
+    const missing = [];
+    if (!(await rowExists('projects', project_id))) missing.push('project_id does not exist');
+    if (assignee_id !== null && !(await rowExists('users', assignee_id))) missing.push('assignee_id does not exist');
+    if (missing.length) return res.status(400).json({ error: 'Validation failed', details: missing });
+    const result = await pool.query(
+      'INSERT INTO tasks (project_id, title, description, status, priority, assignee_id, due_date) ' +
+      'VALUES ($1, $2, $3, $4, $5, $6, $7) ' +
+      'RETURNING id, project_id, title, description, status, priority, assignee_id, due_date::text AS due_date',
+      [project_id, title, body.description || null, status, priority, assignee_id, due_date]);
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error('POST /api/tasks failed:', err.code || 'database error');
+    res.status(503).json(SAFE_DB_ERROR);
+  }
+});
+
 // ---------- USERS ----------
-app.get('/api/users', (req, res) => res.json(db.users));
 
 app.get('/api/users/:id', (req, res) => {
   const user = db.users.find(u => u.id === +req.params.id);
@@ -58,21 +177,10 @@ app.post('/api/users', (req, res) => {
 });
 
 // ---------- PROJECTS ----------
-app.get('/api/projects', (req, res) => res.json(db.projects));
 
 app.get('/api/projects/:id', (req, res) => {
   const project = db.projects.find(p => p.id === +req.params.id);
   return project ? res.json(project) : res.status(404).json({ error: 'Project not found' });
-});
-
-app.post('/api/projects', (req, res) => {
-  const { name, description, owner_id } = req.body;
-  if (!name || !owner_id) return res.status(400).json({ error: 'name and owner_id are required' });
-  if (!db.users.some(u => u.id === owner_id)) return res.status(400).json({ error: 'owner_id does not exist' });
-  const project = { id: nextId(db.projects), name, description: description || '', owner_id, status: 'planning' };
-  db.projects.push(project);
-  db.memberships.push({ id: nextId(db.memberships), user_id: owner_id, project_id: project.id, role: 'owner' });
-  res.status(201).json(project);
 });
 
 app.put('/api/projects/:id', (req, res) => {
@@ -153,6 +261,14 @@ app.delete('/api/tasks/:id', (req, res) => {
   const before = db.tasks.length;
   db.tasks = db.tasks.filter(t => t.id !== +req.params.id);
   return db.tasks.length < before ? res.status(204).end() : res.status(404).json({ error: 'Task not found' });
+});
+
+// Safe error handler: bad JSON in a request body gets a clear 400; anything else a generic 500 (no internal details)
+app.use((err, req, res, next) => {
+  if (err && err.type === 'entity.parse.failed')
+    return res.status(400).json({ error: 'Invalid JSON in request body' });
+  console.error('Unexpected error:', (err && err.type) || 'unknown');
+  res.status(500).json({ error: 'Internal server error' });
 });
 
 const PORT = process.env.PORT || 3000;
